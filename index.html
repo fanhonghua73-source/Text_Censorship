@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM 文本处理器</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #1a1a2e; color: #fff; min-height: 100vh; }
+        header { background: #16213e; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; }
+        header h1 { font-size: 18px; }
+        .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 100; align-items: center; justify-content: center; }
+        .modal.active { display: flex; }
+        .modal-content { background: #2a2a3e; padding: 25px; border-radius: 12px; width: 90%; max-width: 500px; max-height: 85vh; overflow-y: auto; }
+        .modal h2 { margin-bottom: 20px; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 6px; color: #9ca3af; font-size: 13px; }
+        .form-group input, .form-group select { width: 100%; padding: 10px; background: #1a1a2e; border: 1px solid #3f3f5a; border-radius: 6px; color: #fff; font-size: 14px; }
+        .test-result { margin-top: 10px; padding: 10px; border-radius: 6px; font-size: 13px; }
+        .test-result.success { background: #065f46; color: #34d399; }
+        .test-result.error { background: #7f1d1d; color: #fca5a5; }
+        .test-result.info { background: #1e3a5f; color: #60a5fa; }
+        .modal-btns { display: flex; gap: 10px; margin-top: 20px; }
+        .modal-btns button { flex: 1; padding: 12px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+        .btn-primary { background: #10b981; color: #fff; }
+        .btn-secondary { background: #4b5563; color: #fff; }
+        .btn-test { background: #f59e0b; color: #fff; }
+        .container { display: flex; gap: 15px; padding: 20px; height: calc(100vh - 200px); }
+        .panel { flex: 1; background: #2a2a3e; border-radius: 12px; padding: 15px; display: flex; flex-direction: column; }
+        .panel-title { font-size: 14px; font-weight: bold; margin-bottom: 12px; }
+        textarea { flex: 1; background: #1a1a2e; border: none; border-radius: 8px; padding: 12px; color: #fff; resize: none; font-size: 14px; line-height: 1.6; }
+        textarea::placeholder { color: #6b7280; }
+        .cat-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+        .cat-btn { padding: 6px 12px; border: none; border-radius: 20px; color: #fff; font-size: 12px; cursor: pointer; }
+        .cat-btn:hover { transform: scale(1.05); }
+        .input-area { background: #2a2a3e; padding: 15px 20px; }
+        .input-area label { display: block; margin-bottom: 8px; color: #9ca3af; }
+        .action-btn { background: #6366f1; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; margin-top: 10px; font-size: 14px; }
+        .header-btn { background: #6366f1; color: #fff; border: none; padding: 8px 15px; border-radius: 6px; cursor: pointer; margin-left: 10px; }
+        .note { background: #1e3a5f; padding: 10px; border-radius: 6px; font-size: 12px; color: #60a5fa; margin-bottom: 15px; }
+        .tab-btns { display: flex; gap: 10px; margin-bottom: 15px; }
+        .tab-btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; background: #4b5563; color: #fff; }
+        .tab-btn.active { background: #6366f1; }
+        .img-preview { max-width: 100%; max-height: 150px; border-radius: 8px; margin: 10px 0; display: none; }
+        .img-preview.active { display: block; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🤖 LLM 文本处理器</h1>
+        <button class="header-btn" onclick="showConfig()">⚙️ 配置</button>
+    </header>
+    
+    <!-- Tab -->
+    <div style="padding:15px 20px 0;">
+        <div class="tab-btns">
+            <button class="tab-btn active" onclick="switchTab('text')" id="tabText">📝 文本处理</button>
+            <button class="tab-btn" onclick="switchTab('image')" id="tabImage">🖼️ 图片分析</button>
+        </div>
+    </div>
+    
+    <div class="container">
+        <!-- 第一块：AI摘要（只显示，不替换原文） -->
+        <div class="panel">
+            <div class="panel-title">📝 AI 摘要 <span id="summaryStatus"></span></div>
+            <textarea id="summary" readonly placeholder="点击「AI 摘要」生成摘要..."></textarea>
+            <button class="action-btn" onclick="generateSummary()">🤖 生成摘要</button>
+        </div>
+        
+        <!-- 第二块：分类（点击跳转到对应段落） -->
+        <div class="panel">
+            <div class="panel-title">🏷️ 智能分类 <span id="classifyStatus"></span></div>
+            <div id="aiCategories" class="cat-btns"></div>
+            <textarea id="classified" placeholder="AI 分类后的内容，点击上方分类标签可跳转..."></textarea>
+            <button class="action-btn" onclick="classifyText()" style="background:#8b5cf6">🔮 智能分类</button>
+        </div>
+        
+        <!-- 第三块：编辑（与第二块同步滚动，可编辑） -->
+        <div class="panel">
+            <div class="panel-title">✏️ 最终内容 <span style="font-size:12px;color:#9ca3af">(与上方同步)</span></div>
+            <textarea id="final" placeholder="编辑最终内容，可与分类内容对比..." onscroll="syncScroll(this)"></textarea>
+            <button class="action-btn" onclick="exportContent()">📥 导出</button>
+        </div>
+    </div>
+    
+    <!-- 文本输入区 -->
+    <div class="input-area" id="textInputArea">
+        <label>📄 输入原文:</label>
+        <textarea id="inputText" style="height:70px" placeholder="在这里输入要处理的文本..."></textarea>
+    </div>
+    
+    <!-- 图片输入区 -->
+    <div class="input-area" id="imageInputArea" style="display:none;">
+        <label>🖼️ 选择图片:</label>
+        <input type="file" id="imageFile" accept="image/*" onchange="previewImage()" style="margin:10px 0;">
+        <img id="imgPreview" class="img-preview">
+        <textarea id="imageQuestion" style="height:50px" placeholder="输入你想问图片的问题..."></textarea>
+    </div>
+    
+    <!-- 配置弹窗 -->
+    <div class="modal" id="configModal">
+        <div class="modal-content">
+            <h2>🤖 LLM API 配置</h2>
+            <div class="note">💡 选择服务商 → 填 API Key → 选择模型 → 保存</div>
+            <div class="form-group">
+                <label>选择服务商</label>
+                <select id="provider" onchange="showFields()">
+                    <option value="DeepSeek">DeepSeek</option>
+                    <option value="OpenAI">OpenAI</option>
+                    <option value="Moonshot">Moonshot</option>
+                    <option value="Zhipu">智谱AI</option>
+                    <option value="Ollama">Ollama</option>
+                </select>
+            </div>
+            <div id="fields"></div>
+            <div id="testResult" class="test-result" style="display:none;"></div>
+            <div class="modal-btns">
+                <button class="btn-test" onclick="testConnection()">🧪 测试</button>
+                <button class="btn-secondary" onclick="hideConfig()">取消</button>
+                <button class="btn-primary" onclick="saveConfig()">💾 保存</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let config = JSON.parse(localStorage.getItem('llm_config') || '{}');
+        let currentProvider = localStorage.getItem('llm_current_provider') || 'DeepSeek';
+        let currentTab = 'text';
+        let imageBase64 = '';
+        let classifiedSegments = [];
+        
+        const providers = {
+            'DeepSeek': { fields: [{key:'api_key',label:'API Key',type:'password'},{key:'model',label:'选择模型',options:['deepseek-chat','deepseek-coder']}], endpoint:'https://api.deepseek.com/v1/chat/completions' },
+            'OpenAI': { fields: [{key:'api_key',label:'API Key',type:'password'},{key:'model',label:'选择模型',options:['gpt-4o','gpt-4-turbo']}], endpoint:'https://api.openai.com/v1/chat/completions' },
+            'Moonshot': { fields: [{key:'api_key',label:'API Key',type:'password'},{key:'model',label:'选择模型',options:['moonshot-v1-8k-vision-preview']}], endpoint:'https://api.moonshot.cn/v1/chat/completions' },
+            'Zhipu': { fields: [{key:'api_key',label:'API Key',type:'password'},{key:'model',label:'选择模型',options:['glm-4','glm-4v']}], endpoint:'https://open.bigmodel.cn/api/paas/v4/chat/completions' },
+            'Ollama': { fields: [{key:'base_url',label:'本地地址',default:'http://localhost:11434'},{key:'model',label:'选择模型',options:['llama3','llava']}], endpoint:'', isOllama:true }
+        };
+        
+        const catColors = ['#ef4444','#f59e0b','#10b981','#3b82f6','#8b5cf6','#ec4899'];
+        
+        function switchTab(tab) {
+            currentTab = tab;
+            document.getElementById('tabText').className = tab === 'text' ? 'tab-btn active' : 'tab-btn';
+            document.getElementById('tabImage').className = tab === 'image' ? 'tab-btn active' : 'tab-btn';
+            document.getElementById('textInputArea').style.display = tab === 'text' ? 'block' : 'none';
+            document.getElementById('imageInputArea').style.display = tab === 'image' ? 'block' : 'none';
+        }
+        
+        function previewImage() {
+            const file = document.getElementById('imageFile').files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                imageBase64 = e.target.result.split(',')[1];
+                document.getElementById('imgPreview').src = e.target.result;
+                document.getElementById('imgPreview').className = 'img-preview active';
+            };
+            reader.readAsDataURL(file);
+        }
+        
+        function showConfig() {
+            document.getElementById('provider').value = currentProvider;
+            document.getElementById('configModal').classList.add('active');
+            showFields();
+        }
+        
+        function hideConfig() { document.getElementById('configModal').classList.remove('active'); }
+        
+        function showFields() {
+            currentProvider = document.getElementById('provider').value;
+            const p = providers[currentProvider];
+            const container = document.getElementById('fields');
+            container.innerHTML = p.fields.map(f => {
+                if (f.options) {
+                    return `<div class="form-group"><label>${f.label}</label><select id="field_${f.key}">${f.options.map(o=>`<option value="${o}" ${(config[currentProvider]?.[f.key]||f.options[0])===o?'selected':''}>${o}</option>`).join('')}</select></div>`;
+                } else {
+                    return `<div class="form-group"><label>${f.label}</label><input type="${f.type||'text'}" id="field_${f.key}" value="${config[currentProvider]?.[f.key]||f.default||''}"></div>`;
+                }
+            }).join('');
+        }
+        
+        function saveConfig() {
+            const provider = document.getElementById('provider');
+            if (!config[provider.value]) config[provider.value] = {};
+            providers[provider.value].fields.forEach(f => {
+                config[provider.value][f.key] = document.getElementById('field_' + f.key).value;
+            });
+            localStorage.setItem('llm_config', JSON.stringify(config));
+            localStorage.setItem('llm_current_provider', provider.value);
+            hideConfig();
+        }
+        
+        async function callAI(prompt, systemPrompt = '你是一个有帮助的AI') {
+            const conf = config[currentProvider];
+            const p = providers[currentProvider];
+            if (!conf || (!conf.api_key && !conf.base_url)) throw new Error('请先配置API');
+            
+            if (currentProvider === 'Ollama') {
+                const response = await fetch(`${conf.base_url}/api/generate`, {
+                    method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({model: conf.model, prompt: prompt, stream: false})
+                });
+                const data = await response.json();
+                return data.response;
+            }
+            
+            let headers = {'Content-Type':'application/json'};
+            if (currentProvider === 'OpenAI') headers['Authorization'] = `Bearer ${conf.api_key}`;
+            else if (currentProvider === 'DeepSeek') headers['Authorization'] = `Bearer ${conf.api_key}`;
+            else if (currentProvider === 'Moonshot') headers['Authorization'] = `Bearer ${conf.api_key}`;
+            else if (currentProvider === 'Zhipu') headers['Authorization'] = `Bearer ${conf.api_key}`;
+            
+            const response = await fetch(p.endpoint, {
+                method:'POST', headers: headers,
+                body: JSON.stringify({
+                    model: conf.model,
+                    messages: [{role:'system',content:systemPrompt},{role:'user',content:prompt}]
+                })
+            });
+            const data = await response.json();
+            if (data.choices && data.choices[0]) return data.choices[0].message.content;
+            throw new Error(JSON.stringify(data));
+        }
+        
+        async function generateSummary() {
+            const text = document.getElementById('inputText').value;
+            if (!text) { alert('请先输入文本'); return; }
+            
+            document.getElementById('summaryStatus').innerHTML = '<span style="color:#f59e0b">处理中...</span>';
+            try {
+                const result = await callAI(`请为以下文本生成简洁摘要（80字以内）：\n\n${text}`, '你是文本摘要专家');
+                document.getElementById('summary').value = result;
+                document.getElementById('summaryStatus').innerHTML = '<span style="color:#10b981">✓</span>';
+            } catch(e) {
+                document.getElementById('summary').value = '错误: ' + e.message;
+                document.getElementById('summaryStatus').innerHTML = '<span style="color:#ef4444">✗</span>';
+            }
+        }
+        
+        async function classifyText() {
+            const text = document.getElementById('inputText').value;
+            if (!text) { alert('请先输入文本'); return; }
+            
+            document.getElementById('classifyStatus').innerHTML = '<span style="color:#f59e0b">处理中...</span>';
+            try {
+                const prompt = `请分析以下文本，提取3-5个分类标签和对应内容。\n格式：\n【标签1】\n对应的内容片段\n---\n【标签2】\n对应内容\n\n原文：${text}`;
+                const result = await callAI(prompt, '你是文本分类专家，按格式输出');
+                
+                // 解析分类结果
+                classifiedSegments = [];
+                const lines = result.split('\n');
+                let currentCat = '';
+                let currentContent = '';
+                
+                lines.forEach(line => {
+                    if (line.startsWith('【') && line.includes('】')) {
+                        if (currentCat && currentContent) {
+                            classifiedSegments.push({category: currentCat.replace('【','').replace('】',''), content: currentContent.trim()});
+                        }
+                        currentCat = line;
+                        currentContent = '';
+                    } else if (line === '---') {
+                        // skip
+                    } else {
+                        currentContent += line + '\n';
+                    }
+                });
+                if (currentCat && currentContent) {
+                    classifiedSegments.push({category: currentCat.replace('【','').replace('】',''), content: currentContent.trim()});
+                }
+                
+                // 显示在第二块
+                document.getElementById('classified').value = result;
+                document.getElementById('final').value = result;  // 同步到第三块
+                
+                // 生成分类按钮（可点击跳转）
+                const catContainer = document.getElementById('aiCategories');
+                catContainer.innerHTML = classifiedSegments.map((seg, i) => 
+                    `<button class="cat-btn" style="background:${catColors[i%catColors.length]}" onclick="jumpToSegment(${i})">${seg.category}</button>`
+                ).join('');
+                
+                document.getElementById('classifyStatus').innerHTML = '<span style="color:#10b981">✓</span>';
+            } catch(e) {
+                document.getElementById('classified').value = '错误: ' + e.message;
+                document.getElementById('classifyStatus').innerHTML = '<span style="color:#ef4445">✗</span>';
+            }
+        }
+        
+        // 点击分类标签跳转到对应段落
+        function jumpToSegment(index) {
+            const textarea = document.getElementById('classified');
+            const content = textarea.value;
+            const targetText = classifiedSegments[index]?.content;
+            
+            if (!targetText) return;
+            
+            const pos = content.indexOf(targetText);
+            if (pos >= 0) {
+                textarea.focus();
+                textarea.setSelectionRange(pos, pos + targetText.length);
+            }
+        }
+        
+        // 同步滚动：第二块滚动时第三块同步
+        function syncScroll(source) {
+            const target = source.id === 'final' ? document.getElementById('classified') : document.getElementById('final');
+            target.scrollTop = source.scrollTop;
+        }
+        
+        // 第三块滚动时第二块同步
+        document.getElementById('classified').addEventListener('scroll', function() {
+            document.getElementById('final').scrollTop = this.scrollTop;
+        });
+        
+        async function testConnection() {
+            const conf = config[currentProvider];
+            const result = document.getElementById('testResult');
+            if (!conf || (!conf.api_key && !conf.base_url)) {
+                result.className = 'test-result error';
+                result.textContent = '请先填写API Key';
+                result.style.display = 'block';
+                return;
+            }
+            result.className = 'test-result info';
+            result.textContent = '正在测试...';
+            result.style.display = 'block';
+            try {
+                const r = await callAI('说"测试成功"', '用一句话回复');
+                result.className = 'test-result success';
+                result.innerHTML = '✅ 成功！回复: ' + r.substring(0,50);
+            } catch(e) {
+                result.className = 'test-result error';
+                result.textContent = '❌ 失败: ' + e.message;
+            }
+        }
+        
+        function exportContent() {
+            const content = document.getElementById('final').value;
+            if (!content) { alert('没有可导出的内容'); return; }
+            const blob = new Blob([content], {type:'text/plain;charset=utf-8'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `LLM处理_${new Date().getTime()}.txt`;
+            a.click();
+        }
+        
+        showFields();
+    </script>
+</body>
+</html>
